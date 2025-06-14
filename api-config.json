@@ -1,0 +1,19 @@
+{
+    "latency": {
+        "enabled": false,
+        "min": 100,
+        "max": 1000
+    },
+    "errors": {
+        "enabled": false,
+        "rate": 0.1
+    },
+    "alerts": {
+        "frequency": "normal"
+    },
+    "carrefours": {
+        "failureProbability": 0.1,
+        "warningProbability": 0.2,
+        "updateFrequency": 5000
+    }
+}
