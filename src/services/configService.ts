@@ -16,6 +16,7 @@ export class ConfigService {
 
   private constructor() {
     const mode = import.meta.env.VITE_APP_MODE || 'development';
+    
     this.env = {
       mode,
       apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:3000',
@@ -23,13 +24,21 @@ export class ConfigService {
       apiTimeout: Number(import.meta.env.VITE_API_TIMEOUT) || 5000,
       apiKey: import.meta.env.VITE_API_KEY || '',
       apiVersion: import.meta.env.VITE_API_VERSION || 'v1',
-      isDemoMode: mode === 'production' ? false : this.getStoredDemoMode()
+      isDemoMode: this.getInitialDemoMode(mode)
     };
+
+    console.log('ConfigService initialized:', {
+      mode: this.env.mode,
+      isDemoMode: this.env.isDemoMode,
+      apiUrl: this.env.apiUrl
+    });
   }
 
-  private getStoredDemoMode(): boolean {
-    // En production, toujours retourner false
-    if (this.env?.mode === 'production') {
+  private getInitialDemoMode(mode: string): boolean {
+    // En production, le mode démo est TOUJOURS désactivé
+    if (mode === 'production') {
+      // Nettoyer le localStorage si on est en production
+      localStorage.removeItem('demo_mode');
       return false;
     }
     
@@ -39,7 +48,7 @@ export class ConfigService {
       return stored === 'true';
     }
     
-    // Par défaut, utiliser la valeur de l'environnement
+    // Par défaut en développement, utiliser la valeur de l'environnement
     return import.meta.env.VITE_DEMO_MODE === 'true';
   }
 
@@ -55,14 +64,45 @@ export class ConfigService {
   }
 
   public isDemoMode(): boolean {
+    // En production, toujours retourner false
     if (this.isProduction()) {
       return false;
     }
-    return this.getStoredDemoMode();
+    
+    // En développement, vérifier la valeur actuelle du localStorage
+    const stored = localStorage.getItem('demo_mode');
+    return stored === 'true';
+  }
+
+  public setDemoMode(enabled: boolean): void {
+    // Ne pas permettre d'activer le mode démo en production
+    if (this.isProduction() && enabled) {
+      console.warn('Le mode démo ne peut pas être activé en production');
+      return;
+    }
+    
+    if (this.isProduction()) {
+      // En production, toujours désactiver
+      localStorage.removeItem('demo_mode');
+      this.env.isDemoMode = false;
+    } else {
+      // En développement, sauvegarder la préférence
+      localStorage.setItem('demo_mode', String(enabled));
+      this.env.isDemoMode = enabled;
+    }
+    
+    console.log('Demo mode changed:', {
+      enabled,
+      isProduction: this.isProduction(),
+      finalState: this.isDemoMode()
+    });
   }
 
   public getConfig(): Environment {
-    return this.env;
+    return {
+      ...this.env,
+      isDemoMode: this.isDemoMode() // Toujours utiliser la valeur actuelle
+    };
   }
 
   public getApiUrl(): string {
@@ -105,11 +145,10 @@ export class ConfigService {
 
   static async sendConfigurationToESP(carrefourId: string, config: ESPConfiguration): Promise<boolean> {
     try {
-      // Simulation d'envoi de configuration à l'ESP
       console.log(`📡 Configuration envoyée à ${carrefourId}:`, config);
       
-      // En production, faire un appel API vers l'ESP
       if (ConfigService.getInstance().isProduction()) {
+        // En production, faire un vrai appel API
         // const response = await fetch(`/api/esp/${carrefourId}/config`, {
         //   method: 'POST',
         //   headers: { 'Content-Type': 'application/json' },

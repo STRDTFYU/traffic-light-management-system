@@ -11,15 +11,77 @@ export const useTrafficData = (isProductionMode: boolean = false) => {
     const [error, setError] = useState<string | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
 
+    // Fonction pour ajouter un nouveau carrefour (mode démo uniquement)
+    const addCarrefour = useCallback((newCarrefour: Omit<CarrefourStatus, 'status' | 'lastUpdate' | 'measures' | 'alerts'>) => {
+        if (!configService.isDemoMode()) {
+            console.warn('Ajout de carrefour disponible uniquement en mode démo');
+            return;
+        }
+
+        const now = new Date().toISOString();
+        const carrefourWithDefaults: CarrefourStatus = {
+            ...newCarrefour,
+            status: 'active',
+            lastUpdate: now,
+            measures: {
+                timestamp: now,
+                carrefour_id: newCarrefour.id,
+                cycle_courant: 1,
+                position_sequence: 0,
+                mode_operation: 'normal',
+                esp_status: {
+                    porte: 'fermee',
+                    alimentation: 'normale',
+                    batterie_niveau: 95,
+                    temperature: 28
+                },
+                mesures: [
+                    {
+                        poteau: 1,
+                        Feu: 'vert',
+                        tension: 220,
+                        intensite: 0.8,
+                        etat: true,
+                        pannes_consecutives: 0
+                    },
+                    {
+                        poteau: 2,
+                        Feu: 'rouge',
+                        tension: 220,
+                        intensite: 1.0,
+                        etat: true,
+                        pannes_consecutives: 0
+                    }
+                ]
+            },
+            alerts: []
+        };
+
+        setCarrefours(prev => [...prev, carrefourWithDefaults]);
+        monitoringService.updateCarrefourStats([...carrefours, carrefourWithDefaults]);
+    }, [carrefours]);
+
     // WebSocket connection management
     const connectWebSocket = useCallback(() => {
-        if (!isProductionMode || configService.isDemoMode()) return;
+        // Ne connecter WebSocket qu'en mode production ET si le mode démo est désactivé
+        if (!isProductionMode || configService.isDemoMode()) {
+            console.log('WebSocket non connecté:', { isProductionMode, isDemoMode: configService.isDemoMode() });
+            return;
+        }
 
+        console.log('Tentative de connexion WebSocket...');
         const ws = new WebSocket('ws://localhost:3000');
         wsRef.current = ws;
 
+        ws.onopen = () => {
+            console.log('WebSocket connecté avec succès');
+            setError(null);
+        };
+
         ws.onmessage = (event) => {
             const { type, data } = JSON.parse(event.data);
+            console.log('Message WebSocket reçu:', type);
+            
             switch (type) {
                 case 'initial':
                     setCarrefours(data.carrefours);
@@ -47,13 +109,13 @@ export const useTrafficData = (isProductionMode: boolean = false) => {
         };
 
         ws.onclose = () => {
-            console.log('WebSocket connection closed. Attempting to reconnect...');
+            console.log('WebSocket connection fermée. Tentative de reconnexion...');
             setTimeout(connectWebSocket, 5000);
         };
 
         ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            setError('WebSocket connection error');
+            console.error('Erreur WebSocket:', error);
+            setError('Erreur de connexion WebSocket');
         };
     }, [isProductionMode]);
 
@@ -62,57 +124,76 @@ export const useTrafficData = (isProductionMode: boolean = false) => {
         const demoCarrefours: CarrefourStatus[] = Array.from({ length: 8 }, (_, i) => ({
             id: `DEMO_${i + 1}`,
             name: `Carrefour ${i + 1}`,
-            location: `${45.5 + Math.random() * 0.1}, ${-73.6 + Math.random() * 0.1}`,
-            status: Math.random() > 0.8 ? 'warning' : 'active',
-            lastUpdate: now,                measures: {
-                    timestamp: now,
-                    carrefour_id: `DEMO_${i + 1}`,
-                    cycle_courant: Math.floor(Math.random() * 4) + 1,
-                    position_sequence: Math.floor(Math.random() * 100),
-                    mode_operation: 'normal',
-                    esp_status: {
+            location: `Zone ${String.fromCharCode(65 + i)}, Secteur ${i + 1}`,
+            status: Math.random() > 0.8 ? (Math.random() > 0.5 ? 'warning' : 'error') : 'active',
+            lastUpdate: now,
+            measures: {
+                timestamp: now,
+                carrefour_id: `DEMO_${i + 1}`,
+                cycle_courant: Math.floor(Math.random() * 4) + 1,
+                position_sequence: Math.floor(Math.random() * 100),
+                mode_operation: 'normal',
+                esp_status: {
                     porte: Math.random() > 0.9 ? 'ouverte' : 'fermee',
-                    alimentation: 'normale',
+                    alimentation: Math.random() > 0.95 ? 'coupee' : 'normale',
                     batterie_niveau: 85 + Math.random() * 15,
                     temperature: 25 + Math.random() * 10
                 },
                 mesures: [
                     {
                         poteau: 1,
-                        Feu: 'vert',
-                        tension: 220 + Math.random() * 10,
+                        Feu: Math.random() > 0.5 ? 'vert' : 'rouge',
+                        tension: 220 + Math.random() * 10 - 5,
                         intensite: 0.8 + Math.random() * 0.4,
-                        etat: true,
-                        pannes_consecutives: 0
+                        etat: Math.random() > 0.05,
+                        pannes_consecutives: Math.floor(Math.random() * 3)
                     },
                     {
                         poteau: 2,
-                        Feu: 'rouge',
-                        tension: 220 + Math.random() * 10,
+                        Feu: Math.random() > 0.5 ? 'rouge' : 'vert',
+                        tension: 220 + Math.random() * 10 - 5,
                         intensite: 1 + Math.random() * 0.5,
-                        etat: true,
-                        pannes_consecutives: 0
+                        etat: Math.random() > 0.05,
+                        pannes_consecutives: Math.floor(Math.random() * 3)
                     }
                 ]
-            }
+            },
+            alerts: []
         }));
 
-        const demoAlerts = Array.from({ length: 3 }, (_, i) => ({
-            id: `ALERT_${i + 1}`,
-            type: Math.random() > 0.5 ? 'SURTENSION' : 'PANNE_INTERMITTENTE',
-            poteau: Math.random() > 0.5 ? 1 : 2,
-            couleur: ['vert', 'jaune', 'rouge'][Math.floor(Math.random() * 3)] as 'vert' | 'jaune' | 'rouge',
-            sur_le_carrefour: `DEMO_${Math.floor(Math.random() * 8) + 1}`,
-            occurrences: Math.floor(Math.random() * 10) + 1,
-            timestamp: now,
-            carrefour_id: `DEMO_${Math.floor(Math.random() * 8) + 1}`
-        }));
+        // Générer quelques alertes aléatoirement
+        const demoAlerts: TrafficAlert[] = [];
+        demoCarrefours.forEach((carrefour, index) => {
+            if (Math.random() > 0.7) { // 30% de chance d'avoir une alerte
+                const alertTypes = ['PANNE_FEU', 'SURTENSION', 'PANNE_INTERMITTENTE', 'PORTE_OUVERTE', 'BATTERIE_FAIBLE'];
+                const alert: TrafficAlert = {
+                    id: `ALERT_DEMO_${index}_${Date.now()}`,
+                    type: alertTypes[Math.floor(Math.random() * alertTypes.length)],
+                    poteau: Math.random() > 0.5 ? 1 : 2,
+                    couleur: ['vert', 'jaune', 'rouge'][Math.floor(Math.random() * 3)] as 'vert' | 'jaune' | 'rouge',
+                    sur_le_carrefour: carrefour.id,
+                    occurrences: Math.floor(Math.random() * 10) + 1,
+                    timestamp: now,
+                    carrefour_id: carrefour.id,
+                    isProgrammed: false
+                };
+                demoAlerts.push(alert);
+                carrefour.alerts = [alert];
+            }
+        });
 
         return { carrefours: demoCarrefours, alerts: demoAlerts };
     }, []);
 
     const fetchInitialData = useCallback(async () => {
-        if (!isProductionMode && configService.isDemoMode()) {
+        console.log('Récupération des données initiales...', {
+            isProductionMode,
+            isDemoMode: configService.isDemoMode()
+        });
+
+        // Si on est en mode démo OU si on n'est pas en mode production, utiliser les données de démo
+        if (configService.isDemoMode() || !isProductionMode) {
+            console.log('Utilisation des données de démonstration');
             const demoData = generateDemoData();
             setCarrefours(demoData.carrefours);
             setAlerts(demoData.alerts);
@@ -122,13 +203,21 @@ export const useTrafficData = (isProductionMode: boolean = false) => {
             return;
         }
 
+        // Mode production avec données réelles
         try {
+            console.log('Récupération des données de production depuis l\'API...');
             const apiClient = ApiClient.getInstance();
             const [carrefoursData, alertsData, maintenanceData] = await Promise.all([
                 apiClient.get<CarrefourStatus[]>('/carrefours'),
                 apiClient.get<TrafficAlert[]>('/alerts'),
                 apiClient.get<MaintenanceTask[]>('/maintenance')
             ]);
+            
+            console.log('Données de production récupérées:', {
+                carrefours: carrefoursData.length,
+                alerts: alertsData.length,
+                maintenance: maintenanceData.length
+            });
             
             setCarrefours(carrefoursData);
             setAlerts(alertsData);
@@ -137,32 +226,36 @@ export const useTrafficData = (isProductionMode: boolean = false) => {
             monitoringService.updateCarrefourStats(carrefoursData);
             
         } catch (error) {
+            console.error('Erreur lors de la récupération des données de production:', error);
             handleApiError(error);
         }
     }, [isProductionMode, generateDemoData]);
 
     const handleApiError = (error: unknown) => {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error('API communication error:', errorMessage);
+        const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+        console.error('Erreur de communication API:', errorMessage);
         
-        if (!isProductionMode && configService.isDemoMode()) {
-            console.warn('Using demo data due to API error');
+        // En cas d'erreur en production, ne pas basculer vers les données de démo
+        if (isProductionMode && !configService.isDemoMode()) {
+            setCarrefours([]);
+            setAlerts([]);
+            setMaintenanceTasks([]);
+            setError(`Erreur de connexion à l'API: ${errorMessage}`);
+        } else {
+            // En développement ou mode démo, utiliser les données de démo comme fallback
+            console.warn('Utilisation des données de démo suite à l\'erreur API');
             const demoData = generateDemoData();
             setCarrefours(demoData.carrefours);
             setAlerts(demoData.alerts);
             setMaintenanceTasks([]);
+            setError(null);
             monitoringService.updateCarrefourStats(demoData.carrefours);
-        } else {
-            setCarrefours([]);
-            setAlerts([]);
-            setMaintenanceTasks([]);
-            setError(errorMessage);
         }
     };
 
     const scheduleMaintenance = useCallback(async (carrefourId: string, type: 'routine' | 'major') => {
-        if (!isProductionMode && configService.isDemoMode()) {
-            console.warn('Maintenance scheduling not available in demo mode');
+        if (configService.isDemoMode()) {
+            console.warn('Programmation de maintenance non disponible en mode démo');
             return;
         }
 
@@ -173,7 +266,7 @@ export const useTrafficData = (isProductionMode: boolean = false) => {
         } catch (error) {
             handleApiError(error);
         }
-    }, [isProductionMode]);
+    }, []);
 
     useEffect(() => {
         fetchInitialData();
@@ -191,6 +284,7 @@ export const useTrafficData = (isProductionMode: boolean = false) => {
         alerts,
         maintenanceTasks,
         error,
-        scheduleMaintenance
+        scheduleMaintenance,
+        addCarrefour
     };
 };

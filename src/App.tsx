@@ -17,36 +17,53 @@ function App() {
   const [activeSection, setActiveSection] = useState('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isDemoMode, setIsDemoMode] = useState(configService.isDemoMode());
+  const [isProductionMode, setIsProductionMode] = useState(configService.isProduction());
 
-  // Initialisation du mode démo
+  // Surveiller les changements de mode
   useEffect(() => {
-    const savedDemoMode = localStorage.getItem('demo_mode');
-    if (savedDemoMode !== null) {
-      setIsDemoMode(savedDemoMode === 'true');
-    }
-  }, []);
+    const checkModeChanges = () => {
+      const currentDemoMode = configService.isDemoMode();
+      const currentProductionMode = configService.isProduction();
+      
+      if (currentDemoMode !== isDemoMode) {
+        setIsDemoMode(currentDemoMode);
+      }
+      
+      if (currentProductionMode !== isProductionMode) {
+        setIsProductionMode(currentProductionMode);
+      }
+    };
 
-  const { carrefours, alerts, error, addCarrefour } = useTrafficData(configService.isProduction());
+    const interval = setInterval(checkModeChanges, 1000);
+    return () => clearInterval(interval);
+  }, [isDemoMode, isProductionMode]);
+
+  const { carrefours, alerts, error, addCarrefour } = useTrafficData(isProductionMode);
 
   // Afficher les erreurs de communication avec l'API
   useEffect(() => {
-    if (error && !isDemoMode) {
-      console.error('Erreur de communication avec l\'API:', error);
+    if (error && isProductionMode && !isDemoMode) {
+      console.error('Erreur de communication avec l\'API en production:', error);
     }
-  }, [error, isDemoMode]);
+  }, [error, isDemoMode, isProductionMode]);
 
   const toggleDarkMode = () => {
     setIsDarkMode(!isDarkMode);
   };
 
   const toggleDemoMode = () => {
-    if (configService.isProduction()) {
+    if (isProductionMode) {
       console.warn('Le mode démo n\'est pas disponible en production');
+      alert('Le mode démo n\'est pas disponible en production');
       return;
     }
+    
     const newDemoMode = !isDemoMode;
-    localStorage.setItem('demo_mode', String(newDemoMode));
+    configService.setDemoMode(newDemoMode);
     setIsDemoMode(newDemoMode);
+    
+    // Recharger la page pour appliquer les changements
+    window.location.reload();
   };
 
   const renderContent = () => {
@@ -71,6 +88,20 @@ function App() {
       default:
         return (
           <>
+            {/* Error Display */}
+            {error && isProductionMode && !isDemoMode && (
+              <div className="mb-6 p-4 bg-red-900/50 border border-red-500/50 rounded-lg">
+                <div className="flex items-center text-red-400">
+                  <Traffic className="w-5 h-5 mr-2" />
+                  <span className="font-medium">Erreur de connexion API</span>
+                </div>
+                <p className="text-red-300 text-sm mt-1">{error}</p>
+                <p className="text-red-300 text-xs mt-2">
+                  Vérifiez que le serveur API est démarré sur {configService.getApiUrl()}
+                </p>
+              </div>
+            )}
+
             {/* Statistics Dashboard */}
             <section className="mb-8">
               <StatsPanel carrefours={carrefours} />
@@ -87,16 +118,34 @@ function App() {
                     Carrefours ({carrefours.length})
                   </h2>
                   <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    {isDemoMode ? 'Mode Démo - ' : 'Mode Production - '}
+                    {isProductionMode ? 'Mode Production' : 'Mode Développement'} - 
+                    {isDemoMode ? ' Données de Démo' : ' Données Réelles'} - 
                     Mise à jour automatique toutes les 5 secondes
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                  {carrefours.map((carrefour) => (
-                    <CarrefourCard key={carrefour.id} carrefour={carrefour} isDarkMode={isDarkMode} />
-                  ))}
-                </div>
+                {carrefours.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Traffic className="w-16 h-16 mx-auto mb-4 text-gray-500 opacity-50" />
+                    <p className={`text-lg ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      {isProductionMode && !isDemoMode && error 
+                        ? 'Impossible de charger les données de production'
+                        : 'Aucun carrefour disponible'
+                      }
+                    </p>
+                    {isProductionMode && !isDemoMode && error && (
+                      <p className={`text-sm mt-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                        Vérifiez la connexion au serveur API
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    {carrefours.map((carrefour) => (
+                      <CarrefourCard key={carrefour.id} carrefour={carrefour} isDarkMode={isDarkMode} />
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Sidebar - Alerts */}
@@ -148,20 +197,30 @@ function App() {
           </div>
           
           <div className="flex items-center space-x-4">
-            {/* Demo Mode Toggle */}
-            <button
-              onClick={toggleDemoMode}
-              className={`flex items-center space-x-2 px-3 py-2 rounded-lg border transition-all duration-200 ${
-                isDemoMode
-                  ? 'bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20'
-                  : 'bg-green-500/10 border-green-500/20 text-green-400 hover:bg-green-500/20'
-              }`}
-            >
-              <Zap className="w-4 h-4" />
-              <span className="text-sm font-medium">
-                {isDemoMode ? 'Mode Démo' : 'Mode Prod'}
-              </span>
-            </button>
+            {/* Demo Mode Toggle - Seulement en développement */}
+            {!isProductionMode && (
+              <button
+                onClick={toggleDemoMode}
+                className={`flex items-center space-x-2 px-3 py-2 rounded-lg border transition-all duration-200 ${
+                  isDemoMode
+                    ? 'bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20'
+                    : 'bg-green-500/10 border-green-500/20 text-green-400 hover:bg-green-500/20'
+                }`}
+              >
+                <Zap className="w-4 h-4" />
+                <span className="text-sm font-medium">
+                  {isDemoMode ? 'Mode Démo' : 'Mode Réel'}
+                </span>
+              </button>
+            )}
+
+            {/* Production Mode Indicator */}
+            {isProductionMode && (
+              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400">
+                <Zap className="w-4 h-4" />
+                <span className="text-sm font-medium">Production</span>
+              </div>
+            )}
 
             {/* Dark Mode Toggle */}
             <button
@@ -177,7 +236,9 @@ function App() {
 
             <div className="flex items-center space-x-2 text-green-400">
               <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-              <span className="text-sm">Système Actif</span>
+              <span className="text-sm">
+                {isProductionMode && !isDemoMode && error ? 'Système Hors Ligne' : 'Système Actif'}
+              </span>
             </div>
             <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
               {new Date().toLocaleString('fr-FR')}
@@ -201,6 +262,11 @@ function App() {
       <footer className={`border-t px-6 py-4 mt-12 transition-colors duration-300 ${footerClasses}`}>
         <div className="max-w-7xl mx-auto text-center text-sm">
           <p>© 2024 Système de Supervision des Feux Tricolores - Version 2.0</p>
+          <p className="mt-1">
+            Mode: {isProductionMode ? 'Production' : 'Développement'} | 
+            Données: {isDemoMode ? 'Démonstration' : 'Réelles'} | 
+            API: {configService.getApiUrl()}
+          </p>
         </div>
       </footer>
     </div>

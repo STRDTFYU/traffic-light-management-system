@@ -6,6 +6,9 @@ export default defineConfig(({ mode }) => {
   // Load env file based on mode
   const env = loadEnv(mode, process.cwd(), '');
 
+  console.log('Vite config - Mode:', mode);
+  console.log('Vite config - DEMO_MODE:', env.VITE_DEMO_MODE);
+
   return {
     plugins: [react()],
     optimizeDeps: {
@@ -24,12 +27,12 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      port: 3000,
+      port: 5173,
       open: true,
       proxy: mode === 'development' 
         ? {
             '/api': {
-              target: 'http://localhost:3001',
+              target: 'http://localhost:3000',
               changeOrigin: true,
               rewrite: (path) => path.replace(/^\/api/, ''),
               secure: false,
